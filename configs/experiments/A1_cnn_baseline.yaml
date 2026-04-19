@@ -1,0 +1,10 @@
+experiment:
+  id: "A1"
+  name: "CNN Baseline"
+  description: "Reference CNN baseline — flat 12-class"
+  seeds: [42]
+
+defaults:
+  data: default
+  model: cnn_baseline
+  train: default

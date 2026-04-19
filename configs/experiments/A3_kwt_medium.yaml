@@ -1,0 +1,10 @@
+experiment:
+  id: "A3"
+  name: "KWT-medium"
+  description: "Keyword Transformer (medium) — flat 12-class"
+  seeds: [42]
+
+defaults:
+  data: default
+  model: kwt_medium
+  train: default

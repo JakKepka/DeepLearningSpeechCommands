@@ -1,0 +1,10 @@
+experiment:
+  id: "A2"
+  name: "KWT-small"
+  description: "Lightweight Keyword Transformer (small) — flat 12-class"
+  seeds: [42]
+
+defaults:
+  data: default
+  model: kwt_small
+  train: default

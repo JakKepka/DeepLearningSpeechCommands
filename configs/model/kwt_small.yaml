@@ -1,0 +1,9 @@
+model:
+  name: "kwt"
+  variant: "small"
+  d_model: 128
+  n_heads: 4
+  n_layers: 4
+  mlp_dim: 256
+  dropout: 0.1
+  num_classes: 12

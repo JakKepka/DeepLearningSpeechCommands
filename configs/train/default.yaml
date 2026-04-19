@@ -1,0 +1,17 @@
+train:
+  batch_size: 128
+  num_workers: 4
+  max_epochs: 50
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  scheduler: "cosine"
+  warmup_epochs: 5
+  grad_clip_norm: 1.0
+  seed: 42
+  early_stopping_patience: 10
+  checkpoint_dir: "./outputs/checkpoints"
+  log_dir: "./outputs/logs"
+  figures_dir: "./outputs/figures"
+  tables_dir: "./outputs/tables"
+  device: "auto"
+  rebalance: false

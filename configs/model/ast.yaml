@@ -1,0 +1,5 @@
+model:
+  name: "ast"
+  pretrained_model: "MIT/ast-finetuned-audioset-10-10-0.4593"
+  freeze_n_layers: 6
+  num_classes: 12

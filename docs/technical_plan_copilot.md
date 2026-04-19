@@ -323,7 +323,7 @@ Realizacja powinna przebiegać iteracyjnie. Każdy etap ma dostarczać działaj�
 
 Ta sekcja jest przeznaczona do realizacji projektu i nie powinna trafić do finalnego raportu badawczego.
 
-### 9.1 Tydzień 1: fundamenty
+### 9.1  fundamenty
 
 - utworzenie repozytorium,
 - konfiguracja środowiska,
@@ -333,7 +333,7 @@ Ta sekcja jest przeznaczona do realizacji projektu i nie powinna trafić do fina
 
 **Rezultat tygodnia:** działający pipeline danych.
 
-### 9.2 Tydzień 2: baseline i ewaluacja
+### 9.2 baseline i ewaluacja
 
 - implementacja CNN baseline,
 - trening próbny,
@@ -342,7 +342,7 @@ Ta sekcja jest przeznaczona do realizacji projektu i nie powinna trafić do fina
 
 **Rezultat tygodnia:** pierwszy działający model i pełna ścieżka trening–ewaluacja.
 
-### 9.3 Tydzień 3: Transformer
+### 9.3  Transformer
 
 - implementacja KWT-style Transformer,
 - uruchomienie wariantu small,
@@ -351,7 +351,7 @@ Ta sekcja jest przeznaczona do realizacji projektu i nie powinna trafić do fina
 
 **Rezultat tygodnia:** główny model projektowy działa i daje porównywalne wyniki.
 
-### 9.4 Tydzień 4: klasy trudne
+### 9.4 klasy trudne
 
 - rebalancing dla flat 12-class,
 - implementacja pipeline'u hierarchicznego,
@@ -360,7 +360,7 @@ Ta sekcja jest przeznaczona do realizacji projektu i nie powinna trafić do fina
 
 **Rezultat tygodnia:** gotowy eksperyment wyróżniający projekt.
 
-### 9.5 Tydzień 5: pretrained model i domknięcie eksperymentów
+### 9.5 pretrained model i domknięcie eksperymentów
 
 - integracja AST,
 - fine-tuning lub eksperyment awaryjny,
