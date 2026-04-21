@@ -128,6 +128,23 @@ This runs 6 training jobs: A1+128, A1+256, A2+128, A2+256, A3+128, A3+256 all on
 python scripts/export_results.py --tables-dir outputs/tables
 ```
 
+### 8. Generate Per-Model Training/Test Report Figures
+
+```bash
+python scripts/report_model_results.py \
+  --tables-dir outputs/tables \
+  --figures-dir outputs/figures
+```
+
+For each model directory in `outputs/tables/{model}`, this creates files in
+`outputs/figures/{model}/summary`:
+
+- `training_curves.png` — train/val loss + accuracy (all runs + mean/std)
+- `confusion_matrix_mean.png` — mean normalized confusion matrix on test set
+- `test_metrics_by_batch.png` — test accuracy and macro F1 grouped by batch size (mean over seeds)
+- `test_results.csv` and `test_summary_by_batch.csv`
+- `analysis.txt` — short text summary with best batch size by macro F1
+
 ---
 
 ## Models

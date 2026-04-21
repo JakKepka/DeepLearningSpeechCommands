@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import statistics
 from pathlib import Path
 
-import numpy as np
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.io import save_csv, save_json
 
@@ -21,31 +23,56 @@ METRIC_KEYS = [
 
 def main(args: argparse.Namespace) -> None:
     tables_dir = Path(args.tables_dir)
-    metric_files = sorted(
-        f for f in tables_dir.rglob("*_metrics.json")
-        if f.name != "summary.json"
-    )
+    metric_files = sorted(f for f in tables_dir.rglob("*_metrics.json") if f.name != "summary.json")
+    history_files = sorted(tables_dir.rglob("*_history.json"))
 
-    if not metric_files:
-        print("No metric JSON files found in", tables_dir)
-        return
+    # Group by experiment ID and deduplicate by run_name.
+    # Prefer *_metrics.json rows; fill missing runs from history[test].
+    groups: dict[str, dict[str, dict]] = {}
 
-    # Group by experiment ID, preferring the immediate subdirectory under tables_dir.
-    groups: dict[str, list[dict]] = {}
     for f in metric_files:
         rel = f.relative_to(tables_dir)
         exp_id = rel.parts[0] if len(rel.parts) > 1 else f.stem.split("_")[0]
-        groups.setdefault(exp_id, []).append(json.loads(f.read_text()))
+        run_name = f.stem.replace("_metrics", "")
+        groups.setdefault(exp_id, {})[run_name] = json.loads(f.read_text())
+
+    for f in history_files:
+        rel = f.relative_to(tables_dir)
+        exp_id = rel.parts[0] if len(rel.parts) > 1 else f.stem.split("_")[0]
+        run_name = f.stem.replace("_history", "")
+
+        run_map = groups.setdefault(exp_id, {})
+        if run_name in run_map:
+            continue
+
+        payload = json.loads(f.read_text())
+        test = payload.get("test", {}) if isinstance(payload, dict) else {}
+        if not isinstance(test, dict) or not test:
+            continue
+
+        # Only keep flat numeric metrics used by this exporter.
+        row: dict[str, float] = {}
+        for key in METRIC_KEYS:
+            value = test.get(key)
+            if isinstance(value, (int, float)):
+                row[key] = float(value)
+        if row:
+            run_map[run_name] = row
+
+    if not groups:
+        print("No metric JSON files or history test metrics found in", tables_dir)
+        return
 
     summary_rows: list[dict] = []
-    for exp_id, runs in sorted(groups.items()):
+    for exp_id, run_map in sorted(groups.items()):
+        runs = list(run_map.values())
         row: dict = {"experiment": exp_id, "n_runs": len(runs)}
         for key in METRIC_KEYS:
             vals = [r[key] for r in runs if key in r]
             if not vals:
                 continue
-            row[f"{key}_mean"] = float(np.mean(vals))
-            row[f"{key}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+            row[f"{key}_mean"] = float(statistics.fmean(vals))
+            row[f"{key}_std"] = float(statistics.pstdev(vals)) if len(vals) > 1 else 0.0
         summary_rows.append(row)
 
     out_csv = tables_dir / "summary.csv"
