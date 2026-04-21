@@ -1,6 +1,7 @@
 train:
   batch_size: 128
   num_workers: 4
+  prefetch_factor: 4
   max_epochs: 50
   lr: 3.0e-4
   weight_decay: 1.0e-4
@@ -8,10 +9,15 @@ train:
   warmup_epochs: 5
   grad_clip_norm: 1.0
   seed: 42
-  early_stopping_patience: 10
+  early_stopping_patience: 4
   checkpoint_dir: "./outputs/checkpoints"
   log_dir: "./outputs/logs"
   figures_dir: "./outputs/figures"
   tables_dir: "./outputs/tables"
+  cache_features: "none"        # one of: none | val_test | all
+  feature_cache_dir: "./data/feature_cache"
+  cache_dtype: "float16"        # float16 reduces cache size and IO
+  cache_batch_size: 256
+  cache_overwrite: false
   device: "auto"
   rebalance: false

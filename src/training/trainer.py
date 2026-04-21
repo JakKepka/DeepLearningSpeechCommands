@@ -205,7 +205,8 @@ class Trainer:
 
         desc = "train" if epoch is None else f"train e{epoch}/{self.max_epochs}"
         for batch in tqdm(self.train_loader, desc=desc, leave=False):
-            x, y = batch[0].to(self.device), batch[1].to(self.device)
+            x = batch[0].to(self.device, non_blocking=True)
+            y = batch[1].to(self.device, non_blocking=True)
             self.optimizer.zero_grad()
             logits = self.model(x)
             loss = self.criterion(logits, y)
@@ -244,7 +245,8 @@ class Trainer:
 
         desc = "val" if epoch is None else f"val   e{epoch}/{self.max_epochs}"
         for batch in tqdm(self.val_loader, desc=desc, leave=False):
-            x, y = batch[0].to(self.device), batch[1].to(self.device)
+            x = batch[0].to(self.device, non_blocking=True)
+            y = batch[1].to(self.device, non_blocking=True)
             logits = self.model(x)
             loss = self.criterion(logits, y)
             total_loss += loss.item() * y.size(0)

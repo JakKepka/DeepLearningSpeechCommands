@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -17,6 +18,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SpeechCommandsDataset
+from src.data.feature_cache import precompute_to_memmap
 from src.data.sampler import build_weighted_sampler
 from src.data.transforms import AudioPipeline
 from src.models import build_model
@@ -74,6 +76,7 @@ def main(args: argparse.Namespace) -> None:
     batch_size = train_cfg.get("batch_size", BATCH_SIZE)
     num_workers = train_cfg.get("num_workers", NUM_WORKERS)
     rebalance = train_cfg.get("rebalance", False)
+    prefetch_factor = train_cfg.get("prefetch_factor", 4)
 
     # On macOS, use num_workers=0 to avoid audio backend issues with multiprocessing
     import sys
@@ -89,7 +92,59 @@ def main(args: argparse.Namespace) -> None:
     device = torch.device(device_str)
 
     # pin_memory is not supported on MPS
-    use_pin_memory = device.type != "mps"
+    use_pin_memory = device.type == "cuda"
+
+    # Optional feature caching for faster epochs (best with augment=False).
+    cache_mode = str(train_cfg.get("cache_features", "none")).lower()
+    cache_dtype = str(train_cfg.get("cache_dtype", "float16"))
+    cache_batch_size = int(train_cfg.get("cache_batch_size", batch_size))
+    cache_overwrite = bool(train_cfg.get("cache_overwrite", False))
+    cache_base = Path(train_cfg.get("feature_cache_dir", "./data/feature_cache"))
+
+    train_aug_enabled = bool(aug_cfg.get("enabled", True))
+    if cache_mode in {"val_test", "all"}:
+        if cache_mode == "all" and train_aug_enabled:
+            logger.warning(
+                "cache_features=all with augmentation enabled would freeze augmentations. "
+                "Switching to cache_features=val_test."
+            )
+            cache_mode = "val_test"
+
+        cache_base.mkdir(parents=True, exist_ok=True)
+
+        if cache_mode == "all":
+            logger.info("Building/using feature cache for train split …")
+            train_ds = precompute_to_memmap(
+                train_ds,
+                cache_base / "train",
+                batch_size=cache_batch_size,
+                num_workers=num_workers,
+                prefetch_factor=prefetch_factor,
+                dtype=cache_dtype,
+                overwrite=cache_overwrite,
+            )
+
+        logger.info("Building/using feature cache for validation split …")
+        val_ds = precompute_to_memmap(
+            val_ds,
+            cache_base / "validation",
+            batch_size=cache_batch_size,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            dtype=cache_dtype,
+            overwrite=cache_overwrite,
+        )
+
+        logger.info("Building/using feature cache for test split …")
+        test_ds = precompute_to_memmap(
+            test_ds,
+            cache_base / "testing",
+            batch_size=cache_batch_size,
+            num_workers=num_workers,
+            prefetch_factor=prefetch_factor,
+            dtype=cache_dtype,
+            overwrite=cache_overwrite,
+        )
 
     if rebalance:
         sampler = build_weighted_sampler(train_ds.get_labels())
@@ -98,27 +153,30 @@ def main(args: argparse.Namespace) -> None:
         sampler = None
         shuffle = True
 
+    dl_kwargs: dict[str, Any] = {
+        "batch_size": batch_size,
+        "num_workers": num_workers,
+        "pin_memory": use_pin_memory,
+    }
+    if num_workers > 0:
+        dl_kwargs["persistent_workers"] = True
+        dl_kwargs["prefetch_factor"] = prefetch_factor
+
     train_loader = DataLoader(
         train_ds,
-        batch_size=batch_size,
         shuffle=shuffle,
         sampler=sampler,
-        num_workers=num_workers,
-        pin_memory=use_pin_memory,
+        **dl_kwargs,
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=use_pin_memory,
+        **dl_kwargs,
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=use_pin_memory,
+        **dl_kwargs,
     )
 
     model = build_model(cfg)
