@@ -1,8 +1,8 @@
 train:
-  batch_size: 128
+  batch_size: 256
   num_workers: 4
   prefetch_factor: 4
-  max_epochs: 50
+  max_epochs: 2
   lr: 3.0e-4
   weight_decay: 1.0e-4
   scheduler: "cosine"

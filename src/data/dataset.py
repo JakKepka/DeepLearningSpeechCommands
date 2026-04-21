@@ -87,8 +87,11 @@ class SpeechCommandsDataset(Dataset):
         """Extract labels from file paths without loading audio."""
         labels: list[int] = []
         for item in self._speech_ds._walker:
-            # item_path looks like "yes/abc_nohash_0.wav"
-            word = Path(item).parts[0] if isinstance(item, str) else Path(item[0]).parts[-2]
+            # ``_walker`` may contain either relative paths ("yes/file.wav")
+            # or absolute paths (".../SpeechCommands/.../yes/file.wav").
+            # In both cases, the class word is the parent folder name.
+            p = Path(item) if isinstance(item, str) else Path(item[0])
+            word = p.parent.name
             labels.append(flat_label(word))
         return labels
 

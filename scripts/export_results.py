@@ -21,16 +21,20 @@ METRIC_KEYS = [
 
 def main(args: argparse.Namespace) -> None:
     tables_dir = Path(args.tables_dir)
-    metric_files = sorted(tables_dir.glob("*_metrics.json"))
+    metric_files = sorted(
+        f for f in tables_dir.rglob("*_metrics.json")
+        if f.name != "summary.json"
+    )
 
     if not metric_files:
         print("No metric JSON files found in", tables_dir)
         return
 
-    # Group by experiment ID (first component before '_')
+    # Group by experiment ID, preferring the immediate subdirectory under tables_dir.
     groups: dict[str, list[dict]] = {}
     for f in metric_files:
-        exp_id = f.stem.split("_")[0]
+        rel = f.relative_to(tables_dir)
+        exp_id = rel.parts[0] if len(rel.parts) > 1 else f.stem.split("_")[0]
         groups.setdefault(exp_id, []).append(json.loads(f.read_text()))
 
     summary_rows: list[dict] = []

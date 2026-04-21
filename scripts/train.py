@@ -27,6 +27,8 @@ from src.training.seed import set_seed
 from src.training.trainer import Trainer
 from src.utils.config import load_experiment_config
 from src.utils.logging import setup_logging
+from src.utils.paths import resolve_output_dirs
+from src.utils.run_names import build_run_name
 from src.utils.constants import BATCH_SIZE, NUM_WORKERS, N_MELS, N_FFT, HOP_LENGTH
 
 
@@ -35,11 +37,26 @@ def main(args: argparse.Namespace) -> None:
     train_cfg = cfg.get("train", {})
     data_cfg = cfg.get("data", {})
     aug_cfg = cfg.get("augmentation", {})
+    model_cfg = cfg.get("model", {})
+    experiment_cfg = cfg.get("experiment", {})
+    experiment_id = experiment_cfg.get("id")
+
+    train_cfg.update(resolve_output_dirs(train_cfg, experiment_id))
 
     seed = args.seed if args.seed is not None else train_cfg.get("seed", 42)
     set_seed(seed)
 
-    run_name = f"{cfg.get('experiment', {}).get('id', 'run')}_{cfg.get('experiment', {}).get('name', 'model').replace(' ', '_')}_seed{seed}"
+    # AST fine-tuning is not stable in the current local macOS setup.
+    # Fail fast with a clear message instead of allowing a native segfault
+    # during Hugging Face model initialisation.
+    if sys.platform == "darwin" and str(model_cfg.get("name", "")).lower() == "ast":
+        raise RuntimeError(
+            "A4/AST training is not supported in the current macOS local setup. "
+            "Use CUDA on Colab/Linux for this experiment. "
+            "Recommended: run configs/experiments/A4_ast.yaml on Colab with GPU."
+        )
+
+    run_name = build_run_name(cfg, seed)
     log_dir = train_cfg.get("log_dir", "outputs/logs")
     logger = setup_logging(log_dir=log_dir, name=run_name)
     logger.info(f"Config: {args.config} | seed: {seed} | run: {run_name}")
@@ -79,7 +96,6 @@ def main(args: argparse.Namespace) -> None:
     prefetch_factor = train_cfg.get("prefetch_factor", 4)
 
     # On macOS, use num_workers=0 to avoid audio backend issues with multiprocessing
-    import sys
     if sys.platform == "darwin":
         if num_workers > 0:
             logger.warning("macOS detected: setting num_workers=0 for audio backend compatibility")

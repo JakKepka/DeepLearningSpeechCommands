@@ -28,6 +28,7 @@ def evaluate_model(
 
     Returns the metrics dict.
     """
+    model = model.to(device)
     preds, targets = collect_predictions(model, loader, device)
     metrics = compute_metrics(preds, targets, class_names=class_names)
 

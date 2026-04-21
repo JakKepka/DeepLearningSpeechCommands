@@ -4,7 +4,7 @@
 Usage:
     python scripts/evaluate.py \\
         --config configs/experiments/A1_cnn_baseline.yaml \\
-        --checkpoint outputs/checkpoints/A1_CNN_Baseline_seed42_best.pt
+        --checkpoint outputs/checkpoints/A1/A1_CNN_Baseline_ch32-64-128-256_do10_bs128_seed42_best.pt
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from src.evaluation.reports import evaluate_model
 from src.models import build_model
 from src.utils.config import load_experiment_config
 from src.utils.logging import setup_logging
+from src.utils.paths import resolve_output_dirs
 from src.utils.constants import BATCH_SIZE, NUM_WORKERS, N_MELS, N_FFT, HOP_LENGTH
 
 
@@ -31,6 +32,9 @@ def main(args: argparse.Namespace) -> None:
     cfg = load_experiment_config(args.config)
     data_cfg = cfg.get("data", {})
     train_cfg = cfg.get("train", {})
+    experiment_cfg = cfg.get("experiment", {})
+    experiment_id = experiment_cfg.get("id")
+    train_cfg.update(resolve_output_dirs(train_cfg, experiment_id))
 
     logger = setup_logging(name="evaluate")
 
@@ -68,6 +72,7 @@ def main(args: argparse.Namespace) -> None:
     if device_str == "auto":
         device_str = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     device = torch.device(device_str)
+    model = model.to(device)
 
     run_name = Path(ckpt_path).stem
     metrics = evaluate_model(

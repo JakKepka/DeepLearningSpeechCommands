@@ -92,12 +92,16 @@ python scripts/train.py --config configs/experiments/A3_kwt_medium.yaml
 python scripts/train.py --config configs/experiments/A4_ast.yaml
 ```
 
+Note: `A4_ast` is intended for CUDA environments. In the current project setup,
+local macOS execution of AST is not supported and may fail at native-library
+initialisation time. Run A4 on Colab/Linux with GPU.
+
 ### 4. Evaluate on Test Split
 
 ```bash
 python scripts/evaluate.py \
     --config configs/experiments/A1_cnn_baseline.yaml \
-    --checkpoint outputs/checkpoints/A1_CNN_Baseline_seed42_best.pt
+    --checkpoint outputs/checkpoints/A1/A1_CNN_Baseline_ch32-64-128-256_do10_bs128_seed42_best.pt
 ```
 
 ### 5. Run Full Experiment (multiple seeds)
@@ -107,7 +111,18 @@ python scripts/run_experiment.py --config configs/experiments/C1_flat.yaml
 # Seeds are taken from the config file (default: [42, 123, 456])
 ```
 
-### 6. Export Summary Table
+### 6. Grid Search (multiple models, seeds, batch sizes)
+
+```bash
+python scripts/run_grid_experiments.py \
+  --models A1 A2 A3 \
+  --seeds 42 \
+  --batch-sizes 128 256
+```
+
+This runs 6 training jobs: A1+128, A1+256, A2+128, A2+256, A3+128, A3+256 all on seed 42.
+
+### 7. Export Summary Table
 
 ```bash
 python scripts/export_results.py --tables-dir outputs/tables
@@ -151,12 +166,17 @@ pytest tests/ -v
 
 ## Reported Metrics
 
-Each run produces in `outputs/tables/`:
+Each run produces in experiment-specific subdirectories, for example `outputs/tables/A1/`:
 
 - `<run>_metrics.json` — accuracy, macro F1, per-class recall, n_params
 - `<run>_metrics.csv` — same as CSV
 - `<run>_history.json` — per-epoch train/val loss and accuracy
 
-Each run produces in `outputs/figures/`:
+Run names now include the seed, batch size, and key architecture parameters, for example:
+
+- `A1_CNN_Baseline_ch32-64-128-256_do10_bs128_seed42`
+- `A2_KWT_small_d128_h4_L4_do10_bs128_seed42`
+
+Each run produces figures in experiment-specific subdirectories, for example `outputs/figures/A1/`:
 
 - `<run>_confusion.png` — normalised confusion matrix
