@@ -46,12 +46,14 @@ from src.utils.config import load_experiment_config
 
 CONFIG_MAP = {
     "A1": "configs/experiments/A1_cnn_baseline.yaml",
-    "A2": "configs/experiments/A2_kwt_small.yaml",
+    "A2": "configs/experiments/A2_kwt.yaml",
     "A3": "configs/experiments/A3_kwt_medium.yaml",
-    "A4": "configs/experiments/A4_ast.yaml",
+    "A4": "configs/experiments/A4_bc_resnet.yaml",
+    "A5": "configs/experiments/A5_ast.yaml",
     "C1": "configs/experiments/C1_flat.yaml",
     "C2": "configs/experiments/C2_flat_rebalanced.yaml",
     "C3": "configs/experiments/C3_hierarchical.yaml",
+    "C4": "configs/experiments/C4_hierarchical_bc_resnet.yaml",
 }
 
 GRID_DEFAULTS_CONFIG = "configs/experiments/grid_search_defaults.yaml"

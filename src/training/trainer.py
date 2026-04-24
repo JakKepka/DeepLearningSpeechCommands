@@ -1,20 +1,23 @@
 """Unified training pipeline."""
 from __future__ import annotations
 
+import statistics
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 import torch
 import torch.nn as nn
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR, OneCycleLR
+from torch.optim import AdamW, SGD
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, OneCycleLR, SequentialLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.evaluation.metrics import collect_predictions, compute_full_metrics, compute_metrics
 from src.training.callbacks import EarlyStopping, ModelCheckpoint
 from src.training.seed import set_seed
+from src.utils.constants import STAGE1_SILENCE, STAGE1_TARGET, STAGE1_UNKNOWN
+from src.data.labels import SILENCE_IDX, UNKNOWN_IDX
 from src.utils.logging import get_logger
 from src.utils.constants import (
     BATCH_SIZE,
@@ -61,6 +64,8 @@ class Trainer:
         self.val_loader = val_loader
         self.test_loader = test_loader
         self.criterion = criterion
+        self.hierarchical: bool = bool(train_cfg.get("hierarchical", False))
+        self.hierarchical_stage2_weight: float = float(train_cfg.get("hierarchical_stage2_weight", 1.0))
         self.run_name = run_name
         self.best_epoch: int = 0
 
@@ -77,23 +82,62 @@ class Trainer:
         self.model.to(self.device)
         self.criterion.to(self.device)
 
+        if self.hierarchical:
+            self.stage1_criterion = nn.CrossEntropyLoss()
+            self.stage2_criterion = nn.CrossEntropyLoss()
+            self.stage1_criterion.to(self.device)
+            self.stage2_criterion.to(self.device)
+
         # Optimiser
-        self.optimizer = AdamW(
-            model.parameters(),
-            lr=train_cfg.get("lr", LEARNING_RATE),
-            weight_decay=train_cfg.get("weight_decay", WEIGHT_DECAY),
-        )
+        lr: float = float(train_cfg.get("lr", LEARNING_RATE))
+        weight_decay: float = float(train_cfg.get("weight_decay", WEIGHT_DECAY))
+        optimizer_name = str(train_cfg.get("optimizer", "adamw")).lower()
+        if optimizer_name == "adamw":
+            self.optimizer = AdamW(
+                model.parameters(),
+                lr=lr,
+                weight_decay=weight_decay,
+            )
+        elif optimizer_name == "sgd":
+            self.optimizer = SGD(
+                model.parameters(),
+                lr=lr,
+                momentum=float(train_cfg.get("momentum", 0.9)),
+                weight_decay=weight_decay,
+                nesterov=bool(train_cfg.get("nesterov", False)),
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {optimizer_name!r}")
 
         # LR scheduler
         max_epochs: int = train_cfg.get("max_epochs", MAX_EPOCHS)
         scheduler_name: str = train_cfg.get("scheduler", SCHEDULER_TYPE)
         warmup_epochs: int = train_cfg.get("warmup_epochs", WARMUP_EPOCHS)
         if scheduler_name == "cosine":
-            self.scheduler = CosineAnnealingLR(self.optimizer, T_max=max_epochs)
+            min_lr = float(train_cfg.get("min_lr", 0.0))
+            if warmup_epochs > 0 and warmup_epochs < max_epochs:
+                warmup = LinearLR(
+                    self.optimizer,
+                    start_factor=float(train_cfg.get("warmup_start_factor", 1e-6)),
+                    end_factor=1.0,
+                    total_iters=warmup_epochs,
+                )
+                cosine = CosineAnnealingLR(
+                    self.optimizer,
+                    T_max=max_epochs - warmup_epochs,
+                    eta_min=min_lr,
+                )
+                self.scheduler = SequentialLR(
+                    self.optimizer,
+                    schedulers=[warmup, cosine],
+                    milestones=[warmup_epochs],
+                )
+            else:
+                self.scheduler = CosineAnnealingLR(self.optimizer, T_max=max_epochs, eta_min=min_lr)
         elif scheduler_name == "onecycle":
             self.scheduler = OneCycleLR(
                 self.optimizer,
-                max_lr=train_cfg.get("lr", 3e-4),
+                max_lr=lr,
                 epochs=max_epochs,
                 steps_per_epoch=len(train_loader),
                 pct_start=warmup_epochs / max_epochs,
@@ -129,6 +173,7 @@ class Trainer:
             f"Training on {self.device} | {self.max_epochs} epochs | "
             f"train={len(self.train_loader.dataset)} val={len(self.val_loader.dataset)}"
         )
+        training_started_at = time.perf_counter()
         for epoch in range(1, self.max_epochs + 1):
             remaining = self.max_epochs - epoch
             logger.info(f"Starting epoch {epoch}/{self.max_epochs} | remaining: {remaining}")
@@ -154,14 +199,17 @@ class Trainer:
                 f"{epoch_time:.1f}s"
             )
 
-            if isinstance(self.scheduler, CosineAnnealingLR):
+            if self.scheduler is not None and not isinstance(self.scheduler, OneCycleLR):
                 self.scheduler.step()
 
             if self.early_stop(val_metrics["val_acc"]):
                 logger.info(f"Early stopping at epoch {epoch}")
                 break
 
+        training_time = time.perf_counter() - training_started_at
+
         # --- Test evaluation on the best checkpoint ---
+        run_finished_at = time.perf_counter()
         test_metrics: dict[str, Any] = {}
         if (
             self.test_loader is not None
@@ -173,7 +221,10 @@ class Trainer:
             )
             state = torch.load(self.checkpoint.best_path, map_location=self.device, weights_only=True)
             self.model.load_state_dict(state)
-            preds, targets = collect_predictions(self.model, self.test_loader, self.device)
+            if self.hierarchical:
+                preds, targets = self._collect_predictions_hierarchical(self.test_loader)
+            else:
+                preds, targets = collect_predictions(self.model, self.test_loader, self.device)
             test_metrics = compute_full_metrics(preds, targets)
             test_metrics["best_epoch"] = self.best_epoch
             test_metrics["best_val_acc"] = float(self.checkpoint.best)  # type: ignore[arg-type]
@@ -181,6 +232,30 @@ class Trainer:
                 f"Test acc={test_metrics['accuracy']:.4f}  "
                 f"macro_f1={test_metrics['macro_f1']:.4f}"
             )
+
+        total_run_time = time.perf_counter() - run_finished_at + training_time
+        epoch_times = [float(row["epoch_time"]) for row in self.history]
+        cumulative_epoch_time = 0.0
+        for row in self.history:
+            cumulative_epoch_time += float(row["epoch_time"])
+            row["cumulative_epoch_time"] = cumulative_epoch_time
+
+        best_epoch_time = None
+        if self.best_epoch > 0 and self.best_epoch <= len(self.history):
+            best_epoch_time = float(self.history[self.best_epoch - 1]["epoch_time"])
+
+        timing = {
+            "total_training_time": training_time,
+            "total_run_time": total_run_time,
+            "avg_epoch_time": statistics.fmean(epoch_times) if epoch_times else 0.0,
+            "median_epoch_time": statistics.median(epoch_times) if epoch_times else 0.0,
+            "min_epoch_time": min(epoch_times) if epoch_times else 0.0,
+            "max_epoch_time": max(epoch_times) if epoch_times else 0.0,
+            "first_epoch_time": epoch_times[0] if epoch_times else 0.0,
+            "last_epoch_time": epoch_times[-1] if epoch_times else 0.0,
+            "best_epoch_time": best_epoch_time,
+            "cumulative_epoch_time": cumulative_epoch_time,
+        }
 
         return {
             "history": self.history,
@@ -190,6 +265,7 @@ class Trainer:
                 "total_epochs": len(self.history),
                 "best_epoch": self.best_epoch,
                 "best_val_acc": float(self.checkpoint.best) if self.checkpoint.best is not None else None,
+                **timing,
             },
         }
 
@@ -208,18 +284,33 @@ class Trainer:
             x = batch[0].to(self.device, non_blocking=True)
             y = batch[1].to(self.device, non_blocking=True)
             self.optimizer.zero_grad()
-            logits = self.model(x)
-            loss = self.criterion(logits, y)
+            if self.hierarchical:
+                stage1_logits, stage2_logits = self.model(x)
+                y_stage1 = self._to_stage1_labels(y)
+                loss1 = self.stage1_criterion(stage1_logits, y_stage1)
+
+                target_mask = y_stage1 == STAGE1_TARGET
+                if target_mask.any():
+                    y_stage2 = self._to_stage2_labels(y[target_mask])
+                    loss2 = self.stage2_criterion(stage2_logits[target_mask], y_stage2)
+                    loss = loss1 + self.hierarchical_stage2_weight * loss2
+                else:
+                    loss = loss1
+
+                batch_preds = self._hierarchical_preds_from_logits(stage1_logits, stage2_logits)
+            else:
+                logits = self.model(x)
+                loss = self.criterion(logits, y)
+                batch_preds = logits.argmax(dim=-1)
             loss.backward()
             if self.grad_clip_norm > 0:
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip_norm)
             self.optimizer.step()
 
-            if isinstance(self.scheduler, OneCycleLR):
+            if self.scheduler is not None and isinstance(self.scheduler, OneCycleLR):
                 self.scheduler.step()
 
             total_loss += loss.item() * y.size(0)
-            batch_preds = logits.argmax(dim=-1)
             correct += (batch_preds == y).sum().item()
             n += y.size(0)
             all_preds.extend(batch_preds.cpu().tolist())
@@ -247,10 +338,23 @@ class Trainer:
         for batch in tqdm(self.val_loader, desc=desc, leave=False):
             x = batch[0].to(self.device, non_blocking=True)
             y = batch[1].to(self.device, non_blocking=True)
-            logits = self.model(x)
-            loss = self.criterion(logits, y)
+            if self.hierarchical:
+                stage1_logits, stage2_logits = self.model(x)
+                y_stage1 = self._to_stage1_labels(y)
+                loss1 = self.stage1_criterion(stage1_logits, y_stage1)
+                target_mask = y_stage1 == STAGE1_TARGET
+                if target_mask.any():
+                    y_stage2 = self._to_stage2_labels(y[target_mask])
+                    loss2 = self.stage2_criterion(stage2_logits[target_mask], y_stage2)
+                    loss = loss1 + self.hierarchical_stage2_weight * loss2
+                else:
+                    loss = loss1
+                batch_preds = self._hierarchical_preds_from_logits(stage1_logits, stage2_logits)
+            else:
+                logits = self.model(x)
+                loss = self.criterion(logits, y)
+                batch_preds = logits.argmax(dim=-1)
             total_loss += loss.item() * y.size(0)
-            batch_preds = logits.argmax(dim=-1)
             correct += (batch_preds == y).sum().item()
             n += y.size(0)
             all_preds.extend(batch_preds.cpu().tolist())
@@ -267,3 +371,40 @@ class Trainer:
             if k.startswith("recall_"):
                 result[f"val_{k}"] = v
         return result
+
+    def _to_stage1_labels(self, y: torch.Tensor) -> torch.Tensor:
+        # 0 -> silence, 1 -> unknown, 2..11 -> target-command
+        y_stage1 = torch.full_like(y, STAGE1_TARGET)
+        y_stage1[y == SILENCE_IDX] = STAGE1_SILENCE
+        y_stage1[y == UNKNOWN_IDX] = STAGE1_UNKNOWN
+        return y_stage1
+
+    def _to_stage2_labels(self, y_targets_only: torch.Tensor) -> torch.Tensor:
+        # Flat labels 2..11 -> stage2 labels 0..9
+        return (y_targets_only - 2).clamp(min=0, max=9)
+
+    def _hierarchical_preds_from_logits(
+        self,
+        stage1_logits: torch.Tensor,
+        stage2_logits: torch.Tensor,
+    ) -> torch.Tensor:
+        stage1_pred = stage1_logits.argmax(dim=-1)
+        stage2_pred_flat = stage2_logits.argmax(dim=-1) + 2
+        pred = stage2_pred_flat.clone()
+        pred[stage1_pred == STAGE1_SILENCE] = SILENCE_IDX
+        pred[stage1_pred == STAGE1_UNKNOWN] = UNKNOWN_IDX
+        return pred
+
+    @torch.inference_mode()
+    def _collect_predictions_hierarchical(self, loader: DataLoader) -> tuple[list[int], list[int]]:
+        self.model.eval()
+        all_preds: list[int] = []
+        all_targets: list[int] = []
+        for batch in loader:
+            x = batch[0].to(self.device, non_blocking=True)
+            y = batch[1]
+            stage1_logits, stage2_logits = self.model(x)
+            preds = self._hierarchical_preds_from_logits(stage1_logits, stage2_logits)
+            all_preds.extend(preds.cpu().tolist())
+            all_targets.extend(y.tolist())
+        return all_preds, all_targets

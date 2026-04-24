@@ -9,20 +9,18 @@ defaults:
 
 grid_search:
   # Models to train
-  models: [A1, A2, A3]
+  models: [C4]
   # Random seeds
   seeds: [42]
   # Batch sizes to try
-  batch_sizes: [128, 256]
+  batch_sizes: [256]
   # Device (auto | cuda | mps | cpu)
   device: "auto"
   # Number of DataLoader workers
   num_workers: 4
   # Enable augmentation
-  augment: false
+  augment: true
 
 train:
-  max_epochs: 5
-  lr: 3.0e-4
-  early_stopping_patience: 5
+  early_stopping_patience: 7
   # batch_size and seed are overridden by run_grid_experiments.py

@@ -3,7 +3,7 @@
 
 Usage:
     python scripts/run_experiment.py --config configs/experiments/C1_flat.yaml
-    python scripts/run_experiment.py --config configs/experiments/A2_kwt_small.yaml --seeds 42 123 456
+    python scripts/run_experiment.py --config configs/experiments/A2_kwt.yaml --seeds 42 123 456
 """
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 experiment:
-  id: "C2"
-  name: "Hierarchical KWT-2"
-  description: "A2 KWT-2 in hierarchical mode"
+  id: "A2"
+  name: "KWT-2"
+  description: "Keyword Transformer KWT-2 — flat 12-class"
   seeds: [42]
 
 defaults:
@@ -13,6 +13,5 @@ data:
   n_mels: 40
 
 train:
-  hierarchical: true
   max_epochs: 80
   lr: 3.0e-4

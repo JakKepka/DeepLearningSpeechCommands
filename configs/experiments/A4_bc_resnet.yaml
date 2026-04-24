@@ -1,0 +1,24 @@
+experiment:
+  id: "A4"
+  name: "BC-ResNet-1.5"
+  description: "BC-ResNet-1.5 — flat 12-class"
+  seeds: [42]
+
+defaults:
+  data: default
+  model: bc_resnet_1_5
+  train: default
+
+data:
+  n_mels: 40
+  n_fft: 480
+  hop_length: 160
+
+train:
+  max_epochs: 200
+  optimizer: "sgd"
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 0.001
+  warmup_epochs: 5
+  scheduler: "cosine"

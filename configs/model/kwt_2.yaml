@@ -1,0 +1,12 @@
+model:
+  name: "kwt"
+  variant: "kwt_2"
+  n_mels: 40
+  time_frames: 98
+  d_model: 128
+  n_heads: 2
+  n_layers: 12
+  mlp_dim: 512
+  dropout: 0.1
+  trunc_norm_std: 0.02
+  num_classes: 12

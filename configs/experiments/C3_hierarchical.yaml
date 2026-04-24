@@ -1,13 +1,15 @@
 experiment:
   id: "C3"
-  name: "Hierarchical pipeline"
-  description: "Two-stage hierarchical classifier: (silence|target|unknown) → 10 commands"
-  seeds: [42, 123, 456]
+  name: "Hierarchical KWT-medium"
+  description: "Hierarchical pipeline using A3 KWT-medium as stage model"
+  seeds: [42]
 
 defaults:
   data: default
-  model: kwt_small
+  model: kwt_medium
   train: default
 
 train:
   hierarchical: true
+  max_epochs: 80
+  lr: 2.0e-4

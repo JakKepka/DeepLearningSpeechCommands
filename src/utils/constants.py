@@ -34,11 +34,21 @@ KWT_SMALL_CONFIG: dict = {
     "dropout": 0.1,
 }
 
+KWT_2_CONFIG: dict = {
+    "n_mels": 40,
+    "time_frames": 98,
+    "d_model": 128,
+    "n_heads": 2,
+    "n_layers": 12,
+    "mlp_dim": 512,
+    "dropout": 0.1,
+}
+
 KWT_MEDIUM_CONFIG: dict = {
     "d_model": 192,
     "n_heads": 4,
     "n_layers": 6,
-    "mlp_dim": 384,
+    "mlp_dim": 768,
     "dropout": 0.1,
 }
 

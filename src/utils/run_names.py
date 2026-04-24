@@ -37,6 +37,14 @@ def _model_tokens(model_cfg: dict[str, Any]) -> list[str]:
     elif model_name == "ast":
         if model_cfg.get("freeze_n_layers") is not None:
             tokens.append(f"frz{_format_scalar(model_cfg['freeze_n_layers'])}")
+    elif model_name == "bc_resnet":
+        if model_cfg.get("variant") is not None:
+            tokens.append(f"v{_format_scalar(model_cfg['variant'])}")
+        if model_cfg.get("width_mult") is not None:
+            width = float(model_cfg["width_mult"])
+            tokens.append(f"wm{int(round(width * 10))}")
+        if model_cfg.get("first_filters") is not None:
+            tokens.append(f"f{_format_scalar(model_cfg['first_filters'])}")
 
     if model_cfg.get("dropout") is not None:
         dropout = float(model_cfg["dropout"])

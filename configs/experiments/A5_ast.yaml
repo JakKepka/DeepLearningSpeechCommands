@@ -1,5 +1,5 @@
 experiment:
-  id: "A4"
+  id: "A5"
   name: "AST fine-tuning"
   description: "Pretrained Audio Spectrogram Transformer fine-tuned for 12-class"
   seeds: [42]
@@ -11,5 +11,5 @@ defaults:
 
 train:
   lr: 1.0e-4
-  max_epochs: 30
+  max_epochs: 60
   batch_size: 64

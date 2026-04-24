@@ -10,6 +10,9 @@ For each model directory in outputs/tables/{model}, the script reads all
   - test_summary_by_batch.csv
   - analysis.txt
 
+Additionally, it creates a global comparison folder:
+    outputs/figures/all_models/summary
+
 Usage:
     python scripts/report_model_results.py --tables-dir outputs/tables --figures-dir outputs/figures
 """
@@ -39,6 +42,7 @@ plt.style.use("seaborn-v0_8-whitegrid")
 
 RUN_SEED_RE = re.compile(r"seed(\d+)")
 RUN_BS_RE = re.compile(r"bs(\d+)")
+RUN_EMB_RE = re.compile(r"(?:emb|embedding)(\d+)")
 
 
 def _parse_seed(run_name: str) -> int | None:
@@ -48,6 +52,11 @@ def _parse_seed(run_name: str) -> int | None:
 
 def _parse_batch_size(run_name: str) -> int | None:
     m = RUN_BS_RE.search(run_name)
+    return int(m.group(1)) if m else None
+
+
+def _parse_embedding_id(run_name: str) -> int | None:
+    m = RUN_EMB_RE.search(run_name.lower())
     return int(m.group(1)) if m else None
 
 
@@ -247,6 +256,7 @@ def _save_test_reports(model_id: str, runs: list[dict[str, Any]], out_dir: Path)
             "run_name": run.get("run_name"),
             "seed": run.get("seed"),
             "batch_size": run.get("batch_size"),
+            "embedding": run.get("embedding"),
             "accuracy": test.get("accuracy"),
             "macro_f1": test.get("macro_f1"),
             "macro_precision": test.get("macro_precision"),
@@ -341,7 +351,201 @@ def _save_test_reports(model_id: str, runs: list[dict[str, Any]], out_dir: Path)
     return {
         "n_test_runs": len(rows),
         "n_batches": len(batch_summary_rows),
+        "rows": rows,
+        "batch_summary_rows": batch_summary_rows,
     }
+
+
+def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _save_all_models_comparison(
+    figures_dir: Path,
+    all_test_rows: list[dict[str, Any]],
+    all_batch_rows: list[dict[str, Any]],
+) -> None:
+    out_dir = figures_dir / "all_models" / "summary"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_csv(out_dir / "all_models_test_results.csv", all_test_rows)
+    _write_csv(out_dir / "all_models_summary_by_model_batch.csv", all_batch_rows)
+
+    if not all_test_rows:
+        return
+
+    # Overall summary per model across all runs
+    by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in all_test_rows:
+        by_model[str(row["model"])].append(row)
+
+    overall_rows: list[dict[str, Any]] = []
+    for model_id, rows in sorted(by_model.items()):
+        out: dict[str, Any] = {"model": model_id, "n_runs": len(rows)}
+        for metric in ("accuracy", "macro_f1", "macro_precision", "macro_recall"):
+            vals = [float(r[metric]) for r in rows if r.get(metric) is not None]
+            if vals:
+                out[f"{metric}_mean"] = float(np.mean(vals))
+                out[f"{metric}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+        overall_rows.append(out)
+
+    _write_csv(out_dir / "all_models_summary_by_model.csv", overall_rows)
+
+    # Summary per embedding group (if embedding tags exist in run names)
+    emb_rows = [r for r in all_test_rows if r.get("embedding") is not None]
+    if emb_rows:
+        by_emb: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for row in emb_rows:
+            by_emb[int(row["embedding"])] .append(row)
+
+        emb_summary_rows: list[dict[str, Any]] = []
+        for emb_id, rows in sorted(by_emb.items()):
+            out: dict[str, Any] = {"embedding": emb_id, "n_runs": len(rows)}
+            for metric in ("accuracy", "macro_f1", "macro_precision", "macro_recall"):
+                vals = [float(r[metric]) for r in rows if r.get(metric) is not None]
+                if vals:
+                    out[f"{metric}_mean"] = float(np.mean(vals))
+                    out[f"{metric}_std"] = float(np.std(vals)) if len(vals) > 1 else 0.0
+            emb_summary_rows.append(out)
+
+        _write_csv(out_dir / "all_models_summary_by_embedding.csv", emb_summary_rows)
+
+        # Separate charts per embedding
+        for emb_id in sorted(by_emb.keys()):
+            emb_batch_rows = [r for r in all_batch_rows if r.get("embedding") == emb_id]
+            if not emb_batch_rows:
+                continue
+
+            best_batch_rows: list[dict[str, Any]] = []
+            by_model_batch: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for row in emb_batch_rows:
+                by_model_batch[str(row["model"])].append(row)
+
+            for model_id, rows in sorted(by_model_batch.items()):
+                best = max(rows, key=lambda r: float(r.get("macro_f1_mean", -1.0)))
+                best_batch_rows.append(best)
+
+            if best_batch_rows:
+                x = np.arange(len(best_batch_rows))
+                labels = [str(r["model"]) for r in best_batch_rows]
+                acc = [float(r.get("accuracy_mean", np.nan)) for r in best_batch_rows]
+                f1 = [float(r.get("macro_f1_mean", np.nan)) for r in best_batch_rows]
+
+                fig, ax = plt.subplots(figsize=(11, 6))
+                width = 0.36
+                acc_bars = ax.bar(x - width / 2, acc, width, color="#2563eb", label="accuracy")
+                f1_bars = ax.bar(x + width / 2, f1, width, color="#ea580c", label="macro_f1")
+                ax.set_xticks(x)
+                ax.set_xticklabels(labels)
+                ax.set_ylim(0.0, 1.02)
+                ax.set_xlabel("Model")
+                ax.set_ylabel("Score")
+                ax.set_title(
+                    f"All models - best batch per model for embedding {emb_id} (mean over seeds)",
+                    fontweight="bold",
+                )
+                ax.grid(axis="y", alpha=0.3)
+                ax.legend()
+                _style_axes_frame(ax)
+                _annotate_bars(ax, acc_bars)
+                _annotate_bars(ax, f1_bars)
+                plt.tight_layout()
+                fig.savefig(
+                    str(out_dir / f"all_models_best_batch_comparison_embedding{emb_id}.png"),
+                    dpi=150,
+                    bbox_inches="tight",
+                )
+                plt.close(fig)
+
+    # Pick best batch per model (by macro_f1_mean) from batch summaries
+    best_batch_rows: list[dict[str, Any]] = []
+    by_model_batch: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in all_batch_rows:
+        by_model_batch[str(row["model"])].append(row)
+
+    for model_id, rows in sorted(by_model_batch.items()):
+        best = max(rows, key=lambda r: float(r.get("macro_f1_mean", -1.0)))
+        best_batch_rows.append(best)
+
+    if best_batch_rows:
+        x = np.arange(len(best_batch_rows))
+        labels = [str(r["model"]) for r in best_batch_rows]
+        acc = [float(r.get("accuracy_mean", np.nan)) for r in best_batch_rows]
+        f1 = [float(r.get("macro_f1_mean", np.nan)) for r in best_batch_rows]
+
+        fig, ax = plt.subplots(figsize=(11, 6))
+        width = 0.36
+        acc_bars = ax.bar(x - width / 2, acc, width, color="#2563eb", label="accuracy")
+        f1_bars = ax.bar(x + width / 2, f1, width, color="#ea580c", label="macro_f1")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_ylim(0.0, 1.02)
+        ax.set_xlabel("Model")
+        ax.set_ylabel("Score")
+        ax.set_title("All models - best batch per model (mean over seeds)", fontweight="bold")
+        ax.grid(axis="y", alpha=0.3)
+        ax.legend()
+        _style_axes_frame(ax)
+        _annotate_bars(ax, acc_bars)
+        _annotate_bars(ax, f1_bars)
+        plt.tight_layout()
+        fig.savefig(str(out_dir / "all_models_best_batch_comparison.png"), dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    # Heatmap: macro F1 by model x batch size
+    if all_batch_rows:
+        models = sorted({str(r["model"]) for r in all_batch_rows})
+        batches = sorted({int(r["batch_size"]) for r in all_batch_rows})
+        model_idx = {m: i for i, m in enumerate(models)}
+        batch_idx = {b: i for i, b in enumerate(batches)}
+        matrix = np.full((len(models), len(batches)), np.nan, dtype=float)
+
+        for row in all_batch_rows:
+            m = str(row["model"])
+            b = int(row["batch_size"])
+            matrix[model_idx[m], batch_idx[b]] = float(row.get("macro_f1_mean", np.nan))
+
+        fig, ax = plt.subplots(figsize=(9, 5.5))
+        sns.heatmap(
+            matrix,
+            annot=True,
+            fmt=".3f",
+            cmap="YlOrBr",
+            xticklabels=[str(b) for b in batches],
+            yticklabels=models,
+            vmin=0.0,
+            vmax=1.0,
+            ax=ax,
+        )
+        ax.set_title("Macro F1 mean by model and batch size", fontweight="bold")
+        ax.set_xlabel("Batch size")
+        ax.set_ylabel("Model")
+        _style_axes_frame(ax)
+        plt.tight_layout()
+        fig.savefig(str(out_dir / "all_models_macro_f1_heatmap.png"), dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    # Short global analysis
+    lines: list[str] = []
+    lines.append("Global comparison across all models")
+    lines.append(f"Runs included: {len(all_test_rows)}")
+    lines.append(f"Model-batch groups: {len(all_batch_rows)}")
+    if best_batch_rows:
+        top = max(best_batch_rows, key=lambda r: float(r.get("macro_f1_mean", -1.0)))
+        lines.append(
+            "Best model+batch by macro_f1_mean: "
+            f"{top['model']} @ bs={top['batch_size']} "
+            f"(macro_f1_mean={float(top.get('macro_f1_mean', float('nan'))):.4f}, "
+            f"accuracy_mean={float(top.get('accuracy_mean', float('nan'))):.4f})"
+        )
+    with open(out_dir / "analysis.txt", "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def _collect_runs(history_files: list[Path]) -> list[dict[str, Any]]:
@@ -356,6 +560,7 @@ def _collect_runs(history_files: list[Path]) -> list[dict[str, Any]]:
                 "run_name": run_name,
                 "seed": _parse_seed(run_name),
                 "batch_size": _parse_batch_size(run_name),
+                "embedding": _parse_embedding_id(run_name),
                 "history": data.get("history", []),
                 "test": data.get("test", {}),
                 "meta": data.get("meta", {}),
@@ -379,6 +584,9 @@ def main(args: argparse.Namespace) -> None:
     if not grouped:
         print(f"No *_history.json files found in {tables_dir}")
         return
+
+    all_test_rows: list[dict[str, Any]] = []
+    all_batch_rows: list[dict[str, Any]] = []
 
     for model_id, history_files in sorted(grouped.items()):
         runs = _collect_runs(history_files)
@@ -404,11 +612,23 @@ def main(args: argparse.Namespace) -> None:
                 out_dir / f"confusion_matrix_bs{batch_size}.png",
             )
         info = _save_test_reports(model_id, runs, out_dir)
+        for row in info.get("rows", []):
+            all_test_rows.append(row)
+        for row in info.get("batch_summary_rows", []):
+            emb_id = None
+            for run in runs:
+                if run.get("batch_size") == row.get("batch_size") and run.get("embedding") is not None:
+                    emb_id = run.get("embedding")
+                    break
+            all_batch_rows.append({"model": model_id, "embedding": emb_id, **row})
 
         print(
             f"[{model_id}] runs={len(runs)} | batches={len(runs_by_batch)} | "
             f"test_runs={info['n_test_runs']} | conf_mats={n_cm} | saved={out_dir}"
         )
+
+    _save_all_models_comparison(figures_dir, all_test_rows, all_batch_rows)
+    print(f"[ALL_MODELS] saved={figures_dir / 'all_models' / 'summary'}")
 
 
 if __name__ == "__main__":

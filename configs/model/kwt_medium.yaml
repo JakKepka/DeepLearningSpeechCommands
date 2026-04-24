@@ -4,6 +4,6 @@ model:
   d_model: 192
   n_heads: 4
   n_layers: 6
-  mlp_dim: 384
+  mlp_dim: 768
   dropout: 0.1
   num_classes: 12

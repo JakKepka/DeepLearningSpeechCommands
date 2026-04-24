@@ -1,0 +1,17 @@
+model:
+  name: "bc_resnet"
+  variant: "1.5"
+
+  n_mels: 40
+  num_classes: 12
+
+  width_mult: 1.5
+  first_filters: 24
+  stage_filters: [12, 18, 24, 30]
+  stage_blocks: [2, 2, 4, 4]
+  stage_strides_f: [1, 2, 2, 1]
+  stage_dilations_t: [1, 2, 3, 3]
+  last_filters: 48
+
+  sub_bands: 5
+  dropout: 0.1

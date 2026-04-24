@@ -1,10 +1,15 @@
 experiment:
   id: "C1"
-  name: "Flat 12-class baseline"
-  description: "KWT-small flat 12-class, no rebalancing — baseline for silence/unknown study"
-  seeds: [42, 123, 456]
+  name: "Hierarchical CNN baseline"
+  description: "A1 CNN baseline in hierarchical mode"
+  seeds: [42]
 
 defaults:
   data: default
-  model: kwt_small
+  model: cnn_baseline
   train: default
+
+train:
+  hierarchical: true
+  max_epochs: 80
+  lr: 5.0e-4
